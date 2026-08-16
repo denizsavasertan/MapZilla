@@ -85,15 +85,29 @@
     border-radius:6px; border:1px solid var(--ink-600);
   }
   #area-readout .warn{ color:var(--red); }
-  .layer-row{ display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid var(--ink-700); }
+  .toggle-row{
+    display:flex; align-items:center; gap:9px;
+    font-size:12.5px;
+  }
+  .toggle-row input[type=checkbox]{ width:15px; height:15px; accent-color:var(--brass); flex:none; }
+  .hint{ font-size:11px; color:var(--text-muted); margin-top:6px; line-height:1.5; }
+  .layer-row{
+    display:flex; align-items:center; gap:8px;
+    padding:8px 0; border-bottom:1px solid var(--ink-700);
+  }
   .layer-row:last-child{ border-bottom:none; }
   .layer-row input[type=checkbox]{ width:15px; height:15px; accent-color:var(--brass); flex:none; }
   .layer-row input[type=color]{
-    width:26px; height:26px; border:1px solid var(--ink-600); border-radius:5px;
+    width:24px; height:24px; border:1px solid var(--ink-600); border-radius:5px;
     background:none; padding:0; flex:none; cursor:pointer;
   }
-  .layer-row .lname{ flex:1; font-size:12.5px; }
-  .layer-row input[type=range]{ width:64px; accent-color:var(--brass); flex:none; }
+  .layer-row .lname{ flex:1; font-size:12px; }
+  .layer-row input[type=range]{ width:52px; accent-color:var(--brass); flex:none; }
+  .layer-row .wval{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--brass-light);
+    width:42px; text-align:right; flex:none;
+  }
   .btn{
     width:100%; padding:11px 14px; border-radius:7px; border:none;
     font-family:'JetBrains Mono', monospace; font-size:12.5px; letter-spacing:0.04em;
@@ -208,19 +222,32 @@
       </div>
       <div id="area-readout" class="mono">Area: —</div>
     </div>
+
     <div class="section">
       <p class="section-title">Layers</p>
       <div id="layer-list"></div>
+      <div class="hint">Pen tip width shown in mm — matches your fineliner/plotter pen size.</div>
     </div>
+
+    <div class="section">
+      <p class="section-title">View</p>
+      <label class="toggle-row">
+        <input type="checkbox" id="fill-preview" checked>
+        Fill water &amp; green areas (preview only)
+      </label>
+      <div class="hint">A pen can't actually paint an area — this fill is just to help you see shapes on screen. The exported SVG stays outline-only.</div>
+    </div>
+
     <div class="section">
       <button class="btn btn-primary" id="btn-draw">Draw This Area</button>
       <div id="status"></div>
       <button class="btn btn-secondary" id="btn-download" disabled>Download SVG</button>
     </div>
+
     <div class="footer-note">
       Data source: OpenStreetMap / Overpass API. Large areas may time out — shrink the frame and try again.
       <br><br>
-      <span style="color:var(--brass-light)">v0.1 — MVP prototype.</span> G-code export, path optimization, hatch fills, and multi-pen output are planned for a future version.
+      <span style="color:var(--brass-light)">v0.2 — MVP prototype.</span> G-code export, path optimization, hatch fills, and multi-pen output are planned for a future version.
     </div>
   </div>
   <div id="main">
@@ -246,15 +273,16 @@
 <script>
 const PAPER_SIZES = { A5:[148,210], A4:[210,297], A3:[297,420], A2:[420,594], LETTER:[215.9,279.4], SQUARE:[210,210] };
 
+// width values are pen-tip millimeters, applied 1:1 in the final SVG (viewBox units = mm)
 const layers = [
-  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.6, enabled:true },
-  { id:'green',     label:'Green space / park',         color:'#4c7a4f', width:0.5, enabled:true },
-  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.35, enabled:true },
-  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.5, enabled:true },
-  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.7, enabled:true },
+  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true, fillable:true },
+  { id:'green',     label:'Green space / park',         color:'#4c7a4f', width:0.35, enabled:true, fillable:true },
+  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true, fillable:false },
+  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true, fillable:false },
+  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.5,  enabled:true, fillable:false },
 ];
 
-const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([40.7128, -74.0060], 13);
+const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([41.0082, 28.9784], 13);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
   attribution: '&copy; OpenStreetMap contributors'
@@ -270,7 +298,8 @@ function renderLayerPanel(){
       <input type="checkbox" ${layer.enabled ? 'checked' : ''} data-id="${layer.id}" data-role="toggle">
       <input type="color" value="${layer.color}" data-id="${layer.id}" data-role="color">
       <span class="lname">${layer.label}</span>
-      <input type="range" min="0.1" max="2.5" step="0.05" value="${layer.width}" data-id="${layer.id}" data-role="width">
+      <input type="range" min="0.1" max="1.2" step="0.05" value="${layer.width}" data-id="${layer.id}" data-role="width">
+      <span class="wval mono" data-id="${layer.id}">${layer.width.toFixed(2)}mm</span>
     `;
     layerListEl.appendChild(row);
   });
@@ -284,7 +313,15 @@ layerListEl.addEventListener('input', (e) => {
   if(!layer) return;
   if(role === 'toggle') layer.enabled = e.target.checked;
   if(role === 'color') layer.color = e.target.value;
-  if(role === 'width') layer.width = parseFloat(e.target.value);
+  if(role === 'width'){
+    layer.width = parseFloat(e.target.value);
+    const label = layerListEl.querySelector(`.wval[data-id="${id}"]`);
+    if(label) label.textContent = layer.width.toFixed(2) + 'mm';
+  }
+  if(lastDrawData) renderSVG(lastDrawData);
+});
+
+document.getElementById('fill-preview').addEventListener('change', () => {
   if(lastDrawData) renderSVG(lastDrawData);
 });
 
@@ -394,6 +431,7 @@ document.addEventListener('click', (e) => {
   if (!document.getElementById('search-wrap').contains(e.target)) searchResults.style.display = 'none';
 });
 
+// ---------- Overpass query ----------
 function buildOverpassQuery(b){
   const bbox = `${b.south},${b.west},${b.north},${b.east}`;
   return `[out:json][timeout:25];(
@@ -401,6 +439,7 @@ function buildOverpassQuery(b){
     way["building"](${bbox});
     way["natural"="water"](${bbox});
     way["waterway"](${bbox});
+    way["natural"="coastline"](${bbox});
     way["landuse"~"^(forest|grass|meadow|orchard)$"](${bbox});
     way["leisure"~"^(park|garden|nature_reserve|pitch)$"](${bbox});
     way["railway"](${bbox});
@@ -421,6 +460,7 @@ function classifyWay(tags){
     else if (['footway','path','cycleway','pedestrian','steps'].includes(h)) mult = 0.4;
     return { layer:'roads', mult };
   }
+  if (tags.natural === 'coastline') return { layer:'coastline', mult:1 };
   if (tags.natural === 'water' || tags.waterway) return { layer:'water', mult:1 };
   if (tags.landuse && /^(forest|grass|meadow|orchard)$/.test(tags.landuse)) return { layer:'green', mult:1 };
   if (tags.leisure && /^(park|garden|nature_reserve|pitch)$/.test(tags.leisure)) return { layer:'green', mult:1 };
@@ -438,25 +478,159 @@ async function fetchOsmData(b){
   return res.json();
 }
 
+function isClosedNodeSeq(nodeIds){
+  return nodeIds.length > 2 && nodeIds[0] === nodeIds[nodeIds.length-1];
+}
+
 function parseOsmElements(data){
   const nodes = {};
   data.elements.forEach(el => {
     if (el.type === 'node') nodes[el.id] = { lat: el.lat, lon: el.lon };
   });
-  const featuresByLayer = {};
-  layers.forEach(l => featuresByLayer[l.id] = []);
+  const featuresByLayer = { water:[], green:[], buildings:[], railway:[], roads:[] };
+  const coastlineWays = [];
 
   data.elements.forEach(el => {
     if (el.type !== 'way' || !el.tags) return;
     const cls = classifyWay(el.tags);
     if (!cls) return;
+
+    if (cls.layer === 'coastline'){
+      const nodeSeq = el.nodes.map(id => (nodes[id] ? { id, lat: nodes[id].lat, lon: nodes[id].lon } : null)).filter(Boolean);
+      if (nodeSeq.length >= 2) coastlineWays.push(nodeSeq);
+      return;
+    }
+
     const coords = el.nodes.map(id => nodes[id]).filter(Boolean);
     if (coords.length < 2) return;
-    featuresByLayer[cls.layer].push({ coords, mult: cls.mult });
+    const closed = isClosedNodeSeq(el.nodes);
+    featuresByLayer[cls.layer].push({ coords, mult: cls.mult, closed });
   });
-  return featuresByLayer;
+
+  return { featuresByLayer, coastlineWays };
 }
 
+// ---------- Coastline stitching + bbox closing (turns fragmented coastline into a fillable sea polygon) ----------
+function mergeCoastlineChains(ways){
+  const remaining = ways.map(w => w.slice());
+  const chains = [];
+  while (remaining.length){
+    let chain = remaining.shift();
+    let extended = true;
+    while (extended){
+      extended = false;
+      for (let i = 0; i < remaining.length; i++){
+        const w = remaining[i];
+        if (w[0].id === chain[chain.length-1].id){
+          chain = chain.concat(w.slice(1)); remaining.splice(i,1); extended = true; break;
+        } else if (w[w.length-1].id === chain[chain.length-1].id){
+          chain = chain.concat(w.slice(0,-1).reverse()); remaining.splice(i,1); extended = true; break;
+        } else if (w[w.length-1].id === chain[0].id){
+          chain = w.slice(0,-1).concat(chain); remaining.splice(i,1); extended = true; break;
+        } else if (w[0].id === chain[0].id){
+          chain = w.slice(1).reverse().concat(chain); remaining.splice(i,1); extended = true; break;
+        }
+      }
+    }
+    chains.push(chain);
+  }
+  return chains;
+}
+
+function isInsideBBox(pt, bbox){
+  return pt.lat <= bbox.north && pt.lat >= bbox.south && pt.lon >= bbox.west && pt.lon <= bbox.east;
+}
+
+function lineIntersect(p1,p2,a,b){
+  const x1=p1.lon,y1=p1.lat, x2=p2.lon,y2=p2.lat;
+  const x3=a.lon,y3=a.lat, x4=b.lon,y4=b.lat;
+  const denom = (x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+  if (Math.abs(denom) < 1e-13) return null;
+  const t = ((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/denom;
+  const u = -((x1-x2)*(y1-y3)-(y1-y2)*(x1-x3))/denom;
+  if (t<0||t>1||u<0||u>1) return null;
+  return { lon: x1+t*(x2-x1), lat: y1+t*(y2-y1), frac2: u };
+}
+
+function segmentRectIntersection(p1, p2, bbox){
+  const edges = [
+    { t0:0, a:{lat:bbox.north,lon:bbox.west}, b:{lat:bbox.north,lon:bbox.east} }, // north
+    { t0:1, a:{lat:bbox.north,lon:bbox.east}, b:{lat:bbox.south,lon:bbox.east} }, // east
+    { t0:2, a:{lat:bbox.south,lon:bbox.east}, b:{lat:bbox.south,lon:bbox.west} }, // south
+    { t0:3, a:{lat:bbox.south,lon:bbox.west}, b:{lat:bbox.north,lon:bbox.west} }, // west
+  ];
+  for (const e of edges){
+    const ix = lineIntersect(p1, p2, e.a, e.b);
+    if (ix) return { lat: ix.lat, lon: ix.lon, t: e.t0 + ix.frac2 };
+  }
+  return null;
+}
+
+function clipChainToBBox(chain, bbox){
+  const runs = [];
+  let current = null;
+  for (let i = 0; i < chain.length; i++){
+    const pt = chain[i];
+    const inside = isInsideBBox(pt, bbox);
+    if (inside){
+      if (!current){
+        current = { points: [], entryT: null, exitT: null };
+        if (i > 0){
+          const ix = segmentRectIntersection(chain[i-1], pt, bbox);
+          if (ix){ current.points.push(ix); current.entryT = ix.t; }
+        }
+      }
+      current.points.push(pt);
+    } else if (current){
+      const ix = segmentRectIntersection(chain[i-1], pt, bbox);
+      if (ix){ current.points.push(ix); current.exitT = ix.t; }
+      runs.push(current);
+      current = null;
+    }
+  }
+  if (current){
+    if (chain.length > 2 && chain[0].id === chain[chain.length-1].id) current.closed = true;
+    runs.push(current);
+  }
+  return runs;
+}
+
+function bboxCornerAt(k, bbox){
+  const corners = [
+    { lat:bbox.north, lon:bbox.west },
+    { lat:bbox.north, lon:bbox.east },
+    { lat:bbox.south, lon:bbox.east },
+    { lat:bbox.south, lon:bbox.west },
+  ];
+  return corners[((k % 4) + 4) % 4];
+}
+
+function walkBoundaryClockwise(tFrom, tTo, bbox){
+  let adjTo = tTo;
+  while (adjTo <= tFrom) adjTo += 4;
+  const pts = [];
+  let k = Math.floor(tFrom) + 1;
+  while (k < adjTo){ pts.push(bboxCornerAt(k, bbox)); k++; }
+  return pts;
+}
+
+function buildSeaPolygons(coastlineWays, bbox){
+  if (!coastlineWays.length) return [];
+  const chains = mergeCoastlineChains(coastlineWays);
+  const polygons = [];
+  chains.forEach(chain => {
+    const runs = clipChainToBBox(chain, bbox);
+    runs.forEach(run => {
+      if (run.closed){ polygons.push(run.points); return; }
+      if (run.entryT == null || run.exitT == null) return;
+      const boundaryPts = walkBoundaryClockwise(run.exitT, run.entryT, bbox);
+      polygons.push(run.points.concat(boundaryPts));
+    });
+  });
+  return polygons;
+}
+
+// ---------- Projection + SVG generation ----------
 let lastDrawData = null;
 
 function project(coords, bounds, paper){
@@ -475,11 +649,18 @@ function project(coords, bounds, paper){
   });
 }
 
+function pathData(pts, closed){
+  let d = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(3) + ',' + p[1].toFixed(3)).join(' ');
+  if (closed) d += ' Z';
+  return d;
+}
+
 function renderSVG(drawData){
-  const { featuresByLayer, bounds } = drawData;
+  const { featuresByLayer, seaPolygons, bounds } = drawData;
   const { w, h } = currentPaperDims();
   const margin = parseFloat(document.getElementById('paper-margin').value) || 0;
   const paper = { w, h, margin };
+  const fillPreview = document.getElementById('fill-preview').checked;
 
   const svg = document.getElementById('svg-preview');
   svg.setAttribute('width', mmToPx(w));
@@ -491,7 +672,34 @@ function renderSVG(drawData){
   bg.setAttribute('x',0); bg.setAttribute('y',0);
   bg.setAttribute('width', w); bg.setAttribute('height', h);
   bg.setAttribute('fill', '#f4efe3');
+  bg.setAttribute('data-preview-only', '1');
   svg.appendChild(bg);
+
+  const waterLayerCfg = layers.find(l => l.id === 'water');
+
+  // Sea polygons (from stitched coastline) — drawn first, under everything else
+  if (waterLayerCfg && waterLayerCfg.enabled && seaPolygons && seaPolygons.length){
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('data-layer', 'sea');
+    seaPolygons.forEach(ring => {
+      const pts = project(ring, bounds, paper);
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', pathData(pts, true));
+      path.setAttribute('stroke', waterLayerCfg.color);
+      path.setAttribute('stroke-width', waterLayerCfg.width.toFixed(2));
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      if (fillPreview){
+        path.setAttribute('fill', waterLayerCfg.color);
+        path.setAttribute('fill-opacity', '0.35');
+        path.setAttribute('data-preview-fill', '1');
+      } else {
+        path.setAttribute('fill', 'none');
+      }
+      g.appendChild(path);
+    });
+    svg.appendChild(g);
+  }
 
   layers.forEach(layerCfg => {
     if (!layerCfg.enabled) return;
@@ -501,14 +709,19 @@ function renderSVG(drawData){
     g.setAttribute('data-layer', layerCfg.id);
     feats.forEach(f => {
       const pts = project(f.coords, bounds, paper);
-      const d = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(3) + ',' + p[1].toFixed(3)).join(' ');
       const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d', d);
-      path.setAttribute('fill', 'none');
+      path.setAttribute('d', pathData(pts, f.closed));
       path.setAttribute('stroke', layerCfg.color);
       path.setAttribute('stroke-width', (layerCfg.width * (f.mult||1)).toFixed(2));
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
+      if (fillPreview && layerCfg.fillable && f.closed){
+        path.setAttribute('fill', layerCfg.color);
+        path.setAttribute('fill-opacity', '0.35');
+        path.setAttribute('data-preview-fill', '1');
+      } else {
+        path.setAttribute('fill', 'none');
+      }
       g.appendChild(path);
     });
     svg.appendChild(g);
@@ -533,8 +746,9 @@ btnDraw.addEventListener('click', async () => {
   statusEl.textContent = '';
   try{
     const data = await fetchOsmData(bounds);
-    const featuresByLayer = parseOsmElements(data);
-    lastDrawData = { featuresByLayer, bounds };
+    const { featuresByLayer, coastlineWays } = parseOsmElements(data);
+    const seaPolygons = buildSeaPolygons(coastlineWays, bounds);
+    lastDrawData = { featuresByLayer, seaPolygons, bounds };
     renderSVG(lastDrawData);
     statusEl.className = 'ok';
     statusEl.textContent = '✓ Drawing ready. Check the Preview tab.';
@@ -553,8 +767,13 @@ document.getElementById('btn-download').addEventListener('click', () => {
   if (!lastDrawData) return;
   const svgEl = document.getElementById('svg-preview');
   const clone = svgEl.cloneNode(true);
-  const bgRect = clone.querySelector('rect');
-  if (bgRect) bgRect.remove();
+  // strip preview-only background and preview-only fills — exported SVG is stroke-only (plotter can't paint fills)
+  clone.querySelectorAll('[data-preview-only]').forEach(n => n.remove());
+  clone.querySelectorAll('[data-preview-fill]').forEach(n => {
+    n.setAttribute('fill', 'none');
+    n.removeAttribute('fill-opacity');
+    n.removeAttribute('data-preview-fill');
+  });
   const serializer = new XMLSerializer();
   let svgStr = serializer.serializeToString(clone);
   svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgStr;
