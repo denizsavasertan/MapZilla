@@ -276,7 +276,14 @@
     <div class="section">
       <button class="btn btn-primary" id="btn-draw">Draw This Area</button>
       <div id="status"></div>
-      <button class="btn btn-secondary" id="btn-download" disabled>Download SVG</button>
+      <button class="btn btn-secondary" id="btn-download" disabled>Download SVG (for plotter)</button>
+      <div class="row" style="margin-top:8px;">
+        <select id="raster-format" class="mini-select" style="flex:none; width:70px;">
+          <option value="png">PNG</option>
+          <option value="jpg">JPG</option>
+        </select>
+        <button class="btn btn-secondary" id="btn-download-raster" disabled style="margin-top:0; flex:1;">Download Image</button>
+      </div>
     </div>
 
     <div class="footer-note">
@@ -310,16 +317,16 @@ const PAPER_SIZES = { A5:[148,210], A4:[210,297], A3:[297,420], A2:[420,594], LE
 
 // width values are pen-tip millimeters, applied 1:1 in the final SVG (viewBox units = mm)
 const layers = [
-  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
-  { id:'beach',     label:'Beach / sand',               color:'#c9a35c', width:0.3,  enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
-  { id:'wetland',   label:'Wetland / marsh',            color:'#5f8f7a', width:0.3,  enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
-  { id:'green',     label:'Green space / forest',       color:'#4c7a4f', width:0.35, enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
-  { id:'zones',     label:'Urban zones (residential/industrial)', color:'#8892a0', width:0.2, enabled:false, fillable:false },
-  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true,  fillable:false },
-  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true,  fillable:false },
-  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.5,  enabled:true,  fillable:false },
-  { id:'power',     label:'Power lines',                color:'#7c7566', width:0.2,  enabled:true,  fillable:false },
-  { id:'aeroway',   label:'Airport runways',            color:'#2f2f2f', width:0.4,  enabled:true,  fillable:false },
+  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
+  { id:'beach',     label:'Beach / sand',               color:'#c9a35c', width:0.3,  enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
+  { id:'wetland',   label:'Wetland / marsh',            color:'#5f8f7a', width:0.3,  enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
+  { id:'green',     label:'Green space / forest',       color:'#4c7a4f', width:0.35, enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
+  { id:'zones',     label:'Urban zones (residential/industrial)', color:'#8892a0', width:0.2, enabled:false, fillable:true, fillMode:'none', hatchSpacing:0.2, hatchAngle:45 },
+  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.25, hatchAngle:45 },
+  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
+  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.5,  enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.5,  hatchAngle:45 },
+  { id:'power',     label:'Power lines',                color:'#7c7566', width:0.2,  enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.2,  hatchAngle:45 },
+  { id:'aeroway',   label:'Airport runways',            color:'#2f2f2f', width:0.4,  enabled:true,  fillable:true, fillMode:'none', hatchSpacing:0.4,  hatchAngle:45 },
 ];
 
 const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([41.0082, 28.9784], 13);
@@ -872,6 +879,7 @@ function renderSVG(drawData){
   document.getElementById('preview-empty').style.display = 'none';
   document.getElementById('paper-shadow').style.display = 'block';
   document.getElementById('btn-download').disabled = false;
+  document.getElementById('btn-download-raster').disabled = false;
 }
 
 function mmToPx(mm){ return Math.round(mm * 2.8); }
@@ -928,6 +936,57 @@ document.getElementById('btn-download').addEventListener('click', () => {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+});
+
+// ---------- PNG / JPG export (rasterizes exactly what's shown in the preview, incl. preview fills) ----------
+document.getElementById('btn-download-raster').addEventListener('click', () => {
+  if (!lastDrawData) return;
+  const format = document.getElementById('raster-format').value; // 'png' | 'jpg'
+  const svgEl = document.getElementById('svg-preview');
+  const width = parseInt(svgEl.getAttribute('width'), 10);
+  const height = parseInt(svgEl.getAttribute('height'), 10);
+  const upscale = 3; // render well above screen resolution for a crisp, print-usable image
+
+  const serializer = new XMLSerializer();
+  const svgStr = serializer.serializeToString(svgEl);
+  const svgBlob = new Blob([svgStr], { type: 'image/svg+xml;charset=utf-8' });
+  const svgUrl = URL.createObjectURL(svgBlob);
+
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = width * upscale;
+    canvas.height = height * upscale;
+    const ctx = canvas.getContext('2d');
+    if (format === 'jpg'){
+      // JPG has no transparency — paint an opaque paper-colored background first
+      ctx.fillStyle = '#f4efe3';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(svgUrl);
+    canvas.toBlob((blob) => {
+      if (!blob){
+        statusEl.className = 'err';
+        statusEl.textContent = 'Image export failed.';
+        return;
+      }
+      const dlUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = dlUrl;
+      a.download = 'mapzilla-drawing.' + (format === 'jpg' ? 'jpg' : 'png');
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(dlUrl);
+    }, format === 'jpg' ? 'image/jpeg' : 'image/png', 0.95);
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(svgUrl);
+    statusEl.className = 'err';
+    statusEl.textContent = 'Image export failed.';
+  };
+  img.src = svgUrl;
 });
 </script>
 </body>
