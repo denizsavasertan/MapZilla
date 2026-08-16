@@ -113,6 +113,20 @@
     font-family:'JetBrains Mono', monospace;
     font-size:10.5px; color:var(--text-muted);
   }
+  .fill-row{
+    display:flex; align-items:center; gap:6px;
+    padding:0 0 9px 24px;
+    border-bottom:1px solid var(--ink-700);
+  }
+  .fill-row:last-child{ border-bottom:none; }
+  .fill-label{ font-size:10.5px; color:var(--text-muted); flex:none; }
+  .mini-select{
+    padding:4px 6px; font-size:11px; border-radius:4px;
+    background:var(--ink-900); border:1px solid var(--ink-600); color:var(--text);
+    font-family:'JetBrains Mono', monospace;
+  }
+  .hatch-extra{ display:flex; align-items:center; gap:4px; }
+  .hatch-extra input.width-input{ width:44px; padding:5px 6px; font-size:11.5px; }
   .btn{
     width:100%; padding:11px 14px; border-radius:7px; border:none;
     font-family:'JetBrains Mono', monospace; font-size:12.5px; letter-spacing:0.04em;
@@ -240,7 +254,7 @@
         <input type="checkbox" id="fill-preview" checked>
         Fill water &amp; green areas (preview only)
       </label>
-      <div class="hint">A pen can't actually paint an area — this fill is just to help you see shapes on screen. The exported SVG stays outline-only.</div>
+      <div class="hint">Applies to layers set to "None" fill below. A pen can't paint an area, so this is just to help you see shapes on screen — it's stripped from the exported SVG. For a real, exportable fill, set a layer's fill to "Hatch" instead.</div>
     </div>
 
     <div class="section">
@@ -252,7 +266,7 @@
     <div class="footer-note">
       Data source: OpenStreetMap / Overpass API. Large areas may time out — shrink the frame and try again.
       <br><br>
-      <span style="color:var(--brass-light)">v0.2 — MVP prototype.</span> G-code export, path optimization, hatch fills, and multi-pen output are planned for a future version.
+      <span style="color:var(--brass-light)">v0.3 — MVP prototype.</span> G-code export, path optimization, and multi-pen output are planned for a future version.
     </div>
   </div>
   <div id="main">
@@ -280,10 +294,10 @@ const PAPER_SIZES = { A5:[148,210], A4:[210,297], A3:[297,420], A2:[420,594], LE
 
 // width values are pen-tip millimeters, applied 1:1 in the final SVG (viewBox units = mm)
 const layers = [
-  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true,  fillable:true },
-  { id:'beach',     label:'Beach / sand',               color:'#c9a35c', width:0.3,  enabled:true,  fillable:true },
-  { id:'wetland',   label:'Wetland / marsh',            color:'#5f8f7a', width:0.3,  enabled:true,  fillable:true },
-  { id:'green',     label:'Green space / forest',       color:'#4c7a4f', width:0.35, enabled:true,  fillable:true },
+  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
+  { id:'beach',     label:'Beach / sand',               color:'#c9a35c', width:0.3,  enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
+  { id:'wetland',   label:'Wetland / marsh',            color:'#5f8f7a', width:0.3,  enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.3,  hatchAngle:45 },
+  { id:'green',     label:'Green space / forest',       color:'#4c7a4f', width:0.35, enabled:true,  fillable:true,  fillMode:'none', hatchSpacing:0.35, hatchAngle:45 },
   { id:'zones',     label:'Urban zones (residential/industrial)', color:'#8892a0', width:0.2, enabled:false, fillable:false },
   { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true,  fillable:false },
   { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true,  fillable:false },
@@ -314,23 +328,58 @@ function renderLayerPanel(){
       </div>
     `;
     layerListEl.appendChild(row);
+
+    if (layer.fillable){
+      const fillRow = document.createElement('div');
+      fillRow.className = 'fill-row';
+      fillRow.innerHTML = `
+        <span class="fill-label">Fill</span>
+        <select class="mini-select" data-id="${layer.id}" data-role="fillmode">
+          <option value="none" ${layer.fillMode==='none' ? 'selected' : ''}>None</option>
+          <option value="hatch" ${layer.fillMode==='hatch' ? 'selected' : ''}>Hatch</option>
+        </select>
+        <div class="hatch-extra" data-hatch-extra="${layer.id}" style="display:${layer.fillMode==='hatch' ? 'flex' : 'none'}">
+          <input type="number" class="width-input mono" min="0.1" max="10" step="0.05" value="${layer.hatchSpacing.toFixed(2)}" data-id="${layer.id}" data-role="hatchspacing">
+          <span class="unit">mm</span>
+          <select class="mini-select" data-id="${layer.id}" data-role="hatchangle">
+            <option value="0" ${layer.hatchAngle===0 ? 'selected' : ''}>0°</option>
+            <option value="45" ${layer.hatchAngle===45 ? 'selected' : ''}>45°</option>
+            <option value="90" ${layer.hatchAngle===90 ? 'selected' : ''}>90°</option>
+          </select>
+        </div>
+      `;
+      layerListEl.appendChild(fillRow);
+    }
   });
 }
 renderLayerPanel();
 
-layerListEl.addEventListener('input', (e) => {
+function handleLayerControlChange(e){
   const id = e.target.dataset.id;
   const role = e.target.dataset.role;
+  if (!id || !role) return;
   const layer = layers.find(l => l.id === id);
-  if(!layer) return;
-  if(role === 'toggle') layer.enabled = e.target.checked;
-  if(role === 'color') layer.color = e.target.value;
-  if(role === 'width'){
+  if (!layer) return;
+  if (role === 'toggle') layer.enabled = e.target.checked;
+  if (role === 'color') layer.color = e.target.value;
+  if (role === 'width'){
     const v = parseFloat(e.target.value);
-    if(!isNaN(v) && v > 0) layer.width = v;
+    if (!isNaN(v) && v > 0) layer.width = v;
   }
-  if(lastDrawData) renderSVG(lastDrawData);
-});
+  if (role === 'fillmode'){
+    layer.fillMode = e.target.value;
+    const extra = layerListEl.querySelector(`[data-hatch-extra="${id}"]`);
+    if (extra) extra.style.display = layer.fillMode === 'hatch' ? 'flex' : 'none';
+  }
+  if (role === 'hatchspacing'){
+    const v = parseFloat(e.target.value);
+    if (!isNaN(v) && v > 0) layer.hatchSpacing = v;
+  }
+  if (role === 'hatchangle') layer.hatchAngle = parseFloat(e.target.value);
+  if (lastDrawData) renderSVG(lastDrawData);
+}
+layerListEl.addEventListener('input', handleLayerControlChange);
+layerListEl.addEventListener('change', handleLayerControlChange);
 
 document.getElementById('fill-preview').addEventListener('change', () => {
   if(lastDrawData) renderSVG(lastDrawData);
@@ -678,6 +727,54 @@ function pathData(pts, closed){
   return d;
 }
 
+// ---------- Hatch fill (parallel lines clipped to a polygon, for real pen-plotter fill) ----------
+function rotatePt(x, y, angleDeg){
+  const r = angleDeg * Math.PI / 180;
+  const cos = Math.cos(r), sin = Math.sin(r);
+  return [ x*cos - y*sin, x*sin + y*cos ];
+}
+
+function hatchPathForRing(ptsMM, spacing, angleDeg){
+  if (ptsMM.length < 3 || !(spacing > 0)) return '';
+  const rotated = ptsMM.map(p => rotatePt(p[0], p[1], -angleDeg));
+  let minY = Infinity, maxY = -Infinity;
+  rotated.forEach(p => { if (p[1] < minY) minY = p[1]; if (p[1] > maxY) maxY = p[1]; });
+  if (!isFinite(minY) || !isFinite(maxY)) return '';
+  const n = rotated.length;
+  const parts = [];
+  const start = Math.ceil(minY / spacing) * spacing;
+  for (let y = start; y <= maxY; y += spacing){
+    const xs = [];
+    for (let i = 0; i < n; i++){
+      const p1 = rotated[i];
+      const p2 = rotated[(i+1) % n];
+      if ((p1[1] <= y && p2[1] > y) || (p2[1] <= y && p1[1] > y)){
+        const t = (y - p1[1]) / (p2[1] - p1[1]);
+        xs.push(p1[0] + t * (p2[0]-p1[0]));
+      }
+    }
+    xs.sort((a,b) => a-b);
+    for (let i = 0; i+1 < xs.length; i += 2){
+      const a = rotatePt(xs[i], y, angleDeg);
+      const b = rotatePt(xs[i+1], y, angleDeg);
+      parts.push(`M${a[0].toFixed(3)},${a[1].toFixed(3)} L${b[0].toFixed(3)},${b[1].toFixed(3)}`);
+    }
+  }
+  return parts.join(' ');
+}
+
+function appendHatch(svg, groupEl, ptsMM, layerCfg){
+  const d = hatchPathForRing(ptsMM, layerCfg.hatchSpacing, layerCfg.hatchAngle);
+  if (!d) return;
+  const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d', d);
+  path.setAttribute('stroke', layerCfg.color);
+  path.setAttribute('stroke-width', layerCfg.width.toFixed(2));
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('fill', 'none');
+  groupEl.appendChild(path);
+}
+
 function renderSVG(drawData){
   const { featuresByLayer, seaPolygons, bounds } = drawData;
   const { w, h } = currentPaperDims();
@@ -712,7 +809,10 @@ function renderSVG(drawData){
       path.setAttribute('stroke-width', waterLayerCfg.width.toFixed(2));
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
-      if (fillPreview){
+      if (waterLayerCfg.fillMode === 'hatch'){
+        path.setAttribute('fill', 'none');
+        appendHatch(svg, g, pts, waterLayerCfg);
+      } else if (fillPreview){
         path.setAttribute('fill', waterLayerCfg.color);
         path.setAttribute('fill-opacity', '0.35');
         path.setAttribute('data-preview-fill', '1');
@@ -738,7 +838,10 @@ function renderSVG(drawData){
       path.setAttribute('stroke-width', (layerCfg.width * (f.mult||1)).toFixed(2));
       path.setAttribute('stroke-linecap', 'round');
       path.setAttribute('stroke-linejoin', 'round');
-      if (fillPreview && layerCfg.fillable && f.closed){
+      if (layerCfg.fillable && f.closed && layerCfg.fillMode === 'hatch'){
+        path.setAttribute('fill', 'none');
+        appendHatch(svg, g, pts, layerCfg);
+      } else if (fillPreview && layerCfg.fillable && f.closed){
         path.setAttribute('fill', layerCfg.color);
         path.setAttribute('fill-opacity', '0.35');
         path.setAttribute('data-preview-fill', '1');
