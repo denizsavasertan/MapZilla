@@ -102,11 +102,16 @@
     background:none; padding:0; flex:none; cursor:pointer;
   }
   .layer-row .lname{ flex:1; font-size:12px; }
-  .layer-row input[type=range]{ width:52px; accent-color:var(--brass); flex:none; }
-  .layer-row .wval{
+  .layer-row .width-input-wrap{
+    display:flex; align-items:center; gap:3px; flex:none;
+  }
+  .layer-row input[type=number].width-input{
+    width:52px; padding:5px 6px; font-size:11.5px;
+    text-align:right;
+  }
+  .layer-row .unit{
     font-family:'JetBrains Mono', monospace;
-    font-size:10.5px; color:var(--brass-light);
-    width:42px; text-align:right; flex:none;
+    font-size:10.5px; color:var(--text-muted);
   }
   .btn{
     width:100%; padding:11px 14px; border-radius:7px; border:none;
@@ -275,11 +280,16 @@ const PAPER_SIZES = { A5:[148,210], A4:[210,297], A3:[297,420], A2:[420,594], LE
 
 // width values are pen-tip millimeters, applied 1:1 in the final SVG (viewBox units = mm)
 const layers = [
-  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true, fillable:true },
-  { id:'green',     label:'Green space / park',         color:'#4c7a4f', width:0.35, enabled:true, fillable:true },
-  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true, fillable:false },
-  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true, fillable:false },
-  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.5,  enabled:true, fillable:false },
+  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.35, enabled:true,  fillable:true },
+  { id:'beach',     label:'Beach / sand',               color:'#c9a35c', width:0.3,  enabled:true,  fillable:true },
+  { id:'wetland',   label:'Wetland / marsh',            color:'#5f8f7a', width:0.3,  enabled:true,  fillable:true },
+  { id:'green',     label:'Green space / forest',       color:'#4c7a4f', width:0.35, enabled:true,  fillable:true },
+  { id:'zones',     label:'Urban zones (residential/industrial)', color:'#8892a0', width:0.2, enabled:false, fillable:false },
+  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.25, enabled:true,  fillable:false },
+  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.35, enabled:true,  fillable:false },
+  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.5,  enabled:true,  fillable:false },
+  { id:'power',     label:'Power lines',                color:'#7c7566', width:0.2,  enabled:true,  fillable:false },
+  { id:'aeroway',   label:'Airport runways',            color:'#2f2f2f', width:0.4,  enabled:true,  fillable:false },
 ];
 
 const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([41.0082, 28.9784], 13);
@@ -298,8 +308,10 @@ function renderLayerPanel(){
       <input type="checkbox" ${layer.enabled ? 'checked' : ''} data-id="${layer.id}" data-role="toggle">
       <input type="color" value="${layer.color}" data-id="${layer.id}" data-role="color">
       <span class="lname">${layer.label}</span>
-      <input type="range" min="0.1" max="1.2" step="0.05" value="${layer.width}" data-id="${layer.id}" data-role="width">
-      <span class="wval mono" data-id="${layer.id}">${layer.width.toFixed(2)}mm</span>
+      <div class="width-input-wrap">
+        <input type="number" class="width-input mono" min="0.05" max="3" step="0.05" value="${layer.width.toFixed(2)}" data-id="${layer.id}" data-role="width">
+        <span class="unit">mm</span>
+      </div>
     `;
     layerListEl.appendChild(row);
   });
@@ -314,9 +326,8 @@ layerListEl.addEventListener('input', (e) => {
   if(role === 'toggle') layer.enabled = e.target.checked;
   if(role === 'color') layer.color = e.target.value;
   if(role === 'width'){
-    layer.width = parseFloat(e.target.value);
-    const label = layerListEl.querySelector(`.wval[data-id="${id}"]`);
-    if(label) label.textContent = layer.width.toFixed(2) + 'mm';
+    const v = parseFloat(e.target.value);
+    if(!isNaN(v) && v > 0) layer.width = v;
   }
   if(lastDrawData) renderSVG(lastDrawData);
 });
@@ -434,15 +445,21 @@ document.addEventListener('click', (e) => {
 // ---------- Overpass query ----------
 function buildOverpassQuery(b){
   const bbox = `${b.south},${b.west},${b.north},${b.east}`;
-  return `[out:json][timeout:25];(
+  return `[out:json][timeout:30];(
     way["highway"](${bbox});
     way["building"](${bbox});
     way["natural"="water"](${bbox});
     way["waterway"](${bbox});
     way["natural"="coastline"](${bbox});
-    way["landuse"~"^(forest|grass|meadow|orchard)$"](${bbox});
-    way["leisure"~"^(park|garden|nature_reserve|pitch)$"](${bbox});
+    way["natural"~"^(beach|sand)$"](${bbox});
+    way["natural"="wetland"](${bbox});
+    way["natural"~"^(wood|scrub)$"](${bbox});
+    way["landuse"~"^(forest|grass|meadow|orchard|wood)$"](${bbox});
+    way["leisure"~"^(park|garden|nature_reserve|pitch|golf_course)$"](${bbox});
+    way["landuse"~"^(residential|commercial|industrial|retail)$"](${bbox});
     way["railway"](${bbox});
+    way["power"="line"](${bbox});
+    way["aeroway"~"^(runway|taxiway)$"](${bbox});
   );out body;>;out skel qt;`;
 }
 
@@ -460,11 +477,17 @@ function classifyWay(tags){
     else if (['footway','path','cycleway','pedestrian','steps'].includes(h)) mult = 0.4;
     return { layer:'roads', mult };
   }
+  if (tags.aeroway && /^(runway|taxiway)$/.test(tags.aeroway)) return { layer:'aeroway', mult:1 };
   if (tags.natural === 'coastline') return { layer:'coastline', mult:1 };
   if (tags.natural === 'water' || tags.waterway) return { layer:'water', mult:1 };
-  if (tags.landuse && /^(forest|grass|meadow|orchard)$/.test(tags.landuse)) return { layer:'green', mult:1 };
-  if (tags.leisure && /^(park|garden|nature_reserve|pitch)$/.test(tags.leisure)) return { layer:'green', mult:1 };
+  if (tags.natural && /^(beach|sand)$/.test(tags.natural)) return { layer:'beach', mult:1 };
+  if (tags.natural === 'wetland') return { layer:'wetland', mult:1 };
+  if (tags.landuse && /^(forest|grass|meadow|orchard|wood)$/.test(tags.landuse)) return { layer:'green', mult:1 };
+  if (tags.natural && /^(wood|scrub)$/.test(tags.natural)) return { layer:'green', mult:1 };
+  if (tags.leisure && /^(park|garden|nature_reserve|pitch|golf_course)$/.test(tags.leisure)) return { layer:'green', mult:1 };
+  if (tags.landuse && /^(residential|commercial|industrial|retail)$/.test(tags.landuse)) return { layer:'zones', mult:1 };
   if (tags.railway) return { layer:'railway', mult:1 };
+  if (tags.power === 'line') return { layer:'power', mult:1 };
   return null;
 }
 
@@ -487,7 +510,7 @@ function parseOsmElements(data){
   data.elements.forEach(el => {
     if (el.type === 'node') nodes[el.id] = { lat: el.lat, lon: el.lon };
   });
-  const featuresByLayer = { water:[], green:[], buildings:[], railway:[], roads:[] };
+  const featuresByLayer = { water:[], beach:[], wetland:[], green:[], zones:[], buildings:[], railway:[], roads:[], power:[], aeroway:[] };
   const coastlineWays = [];
 
   data.elements.forEach(el => {
