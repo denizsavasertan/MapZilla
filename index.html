@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MapZilla — City Maps to Plotter-Ready SVG</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink-900:#12161d;
+    --ink-800:#1a2029;
+    --ink-700:#232a35;
+    --ink-600:#333c49;
+    --paper:#f4efe3;
+    --paper-line:#d8d0ba;
+    --brass:#b1863f;
+    --brass-light:#d4ac6e;
+    --red:#a8493c;
+    --text:#eae6db;
+    --text-muted:#8892a0;
+    --green-ok:#6a9a6d;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--ink-900);
+    color:var(--text);
+    font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    overflow:hidden;
+  }
+  .mono{ font-family:'JetBrains Mono', ui-monospace, monospace; }
+  #app{ display:flex; height:100vh; width:100vw; }
+  #sidebar{
+    width:340px; min-width:340px;
+    background:var(--ink-800);
+    border-right:1px solid var(--ink-600);
+    display:flex; flex-direction:column; overflow-y:auto;
+  }
+  .brand{ padding:20px 20px 16px 20px; border-bottom:1px solid var(--ink-600); }
+  .brand-mark{ display:flex; align-items:center; gap:10px; }
+  .brand-mark .dot{
+    width:10px;height:10px;border-radius:50%;
+    background:var(--brass);
+    box-shadow:0 0 0 3px rgba(177,134,63,0.2);
+  }
+  .brand h1{
+    font-family:'JetBrains Mono', monospace;
+    font-size:15px; letter-spacing:0.06em; margin:0;
+    font-weight:700; text-transform:uppercase;
+  }
+  .brand p{ margin:6px 0 0 0; font-size:12px; color:var(--text-muted); line-height:1.5; }
+  .section{ padding:16px 20px; border-bottom:1px solid var(--ink-600); }
+  .section-title{
+    font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--brass-light); margin:0 0 10px 0;
+    display:flex; align-items:center; gap:8px;
+  }
+  .section-title::after{ content:''; flex:1; height:1px; background:var(--ink-600); }
+  #search-wrap{ position:relative; }
+  input[type=text], select, input[type=number]{
+    width:100%; background:var(--ink-900); border:1px solid var(--ink-600);
+    color:var(--text); padding:9px 11px; border-radius:6px;
+    font-size:13px; font-family:inherit; outline:none;
+  }
+  input[type=text]:focus, select:focus, input[type=number]:focus{ border-color:var(--brass); }
+  #search-results{
+    position:absolute; top:calc(100% + 4px); left:0; right:0;
+    background:var(--ink-900); border:1px solid var(--ink-600); border-radius:6px;
+    max-height:220px; overflow-y:auto; z-index:1000; display:none;
+  }
+  #search-results div{ padding:9px 11px; font-size:12.5px; cursor:pointer; border-bottom:1px solid var(--ink-700); }
+  #search-results div:last-child{border-bottom:none;}
+  #search-results div:hover{ background:var(--ink-700); color:var(--brass-light); }
+  .row{ display:flex; gap:8px; }
+  .row > *{ flex:1; }
+  label.small{ font-size:11px; color:var(--text-muted); display:block; margin-bottom:5px; }
+  .field{ margin-bottom:12px; }
+  .field:last-child{ margin-bottom:0; }
+  #area-readout{
+    font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--brass-light);
+    margin-top:10px; padding:8px 10px; background:var(--ink-900);
+    border-radius:6px; border:1px solid var(--ink-600);
+  }
+  #area-readout .warn{ color:var(--red); }
+  .layer-row{ display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid var(--ink-700); }
+  .layer-row:last-child{ border-bottom:none; }
+  .layer-row input[type=checkbox]{ width:15px; height:15px; accent-color:var(--brass); flex:none; }
+  .layer-row input[type=color]{
+    width:26px; height:26px; border:1px solid var(--ink-600); border-radius:5px;
+    background:none; padding:0; flex:none; cursor:pointer;
+  }
+  .layer-row .lname{ flex:1; font-size:12.5px; }
+  .layer-row input[type=range]{ width:64px; accent-color:var(--brass); flex:none; }
+  .btn{
+    width:100%; padding:11px 14px; border-radius:7px; border:none;
+    font-family:'JetBrains Mono', monospace; font-size:12.5px; letter-spacing:0.04em;
+    font-weight:600; cursor:pointer; text-transform:uppercase;
+    transition:filter .12s ease, transform .05s ease;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-primary{ background:var(--brass); color:var(--ink-900); }
+  .btn-primary:hover{ filter:brightness(1.1); }
+  .btn-primary:disabled{ background:var(--ink-600); color:var(--text-muted); cursor:not-allowed; }
+  .btn-secondary{ background:transparent; border:1px solid var(--ink-600); color:var(--text); margin-top:8px; }
+  .btn-secondary:hover{ border-color:var(--brass); color:var(--brass-light); }
+  #status{ font-size:11.5px; color:var(--text-muted); margin-top:10px; min-height:16px; line-height:1.5; }
+  #status.err{ color:var(--red); }
+  #status.ok{ color:var(--green-ok); }
+  .footer-note{ padding:14px 20px 20px 20px; font-size:11px; color:var(--text-muted); line-height:1.6; }
+  #main{ flex:1; position:relative; display:flex; flex-direction:column; }
+  #tabs{
+    display:flex; gap:2px; padding:10px 14px 0 14px;
+    background:var(--ink-900); border-bottom:1px solid var(--ink-600);
+  }
+  .tab-btn{
+    padding:9px 18px; background:transparent; border:none; color:var(--text-muted);
+    font-family:'JetBrains Mono', monospace; font-size:11.5px; letter-spacing:0.06em;
+    text-transform:uppercase; cursor:pointer; border-bottom:2px solid transparent;
+  }
+  .tab-btn.active{ color:var(--brass-light); border-bottom-color:var(--brass); }
+  #view-map, #view-preview{ flex:1; position:relative; display:none; }
+  #view-map.active, #view-preview.active{ display:block; }
+  #map{ position:absolute; inset:0; }
+  #frame{
+    position:absolute; border:1.5px solid var(--red);
+    box-shadow:0 0 0 2000px rgba(10,12,16,0.42);
+    pointer-events:none; z-index:500;
+  }
+  #frame::before, #frame::after,
+  #frame .tl, #frame .tr, #frame .bl, #frame .br{
+    content:''; position:absolute; width:14px; height:14px;
+    border-color:var(--brass-light); border-style:solid; border-width:0;
+  }
+  #frame .tl{ top:-1.5px; left:-1.5px; border-top-width:2px; border-left-width:2px; }
+  #frame .tr{ top:-1.5px; right:-1.5px; border-top-width:2px; border-right-width:2px; }
+  #frame .bl{ bottom:-1.5px; left:-1.5px; border-bottom-width:2px; border-left-width:2px; }
+  #frame .br{ bottom:-1.5px; right:-1.5px; border-bottom-width:2px; border-right-width:2px; }
+  #view-preview{
+    background:
+      linear-gradient(var(--ink-800) 1px, transparent 1px),
+      linear-gradient(90deg, var(--ink-800) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-color:var(--ink-900);
+    display:flex; align-items:center; justify-content:center;
+    overflow:auto; padding:30px;
+  }
+  #preview-empty{ color:var(--text-muted); font-size:13px; text-align:center; max-width:320px; line-height:1.7; }
+  #preview-empty .mono{ color:var(--brass-light); }
+  #paper-shadow{ background:var(--paper); box-shadow:0 18px 50px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.2); }
+  #svg-preview{ display:block; }
+  #loading-overlay{
+    position:absolute; inset:0; background:rgba(10,12,16,0.6);
+    display:none; align-items:center; justify-content:center;
+    z-index:900; flex-direction:column; gap:12px;
+  }
+  #loading-overlay.show{ display:flex; }
+  .spinner{
+    width:34px; height:34px; border:3px solid var(--ink-600);
+    border-top-color:var(--brass); border-radius:50%;
+    animation:spin .8s linear infinite;
+  }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  #loading-overlay span{ font-family:'JetBrains Mono', monospace; font-size:12px; color:var(--text-muted); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="brand">
+      <div class="brand-mark"><div class="dot"></div><h1>MapZilla</h1></div>
+      <p>Pick a location, set your paper, generate a clean SVG line drawing for pen plotters.</p>
+    </div>
+    <div class="section">
+      <p class="section-title">Location</p>
+      <div id="search-wrap">
+        <input type="text" id="search-input" placeholder="Search a city or address (e.g. Brooklyn, NYC)">
+        <div id="search-results"></div>
+      </div>
+    </div>
+    <div class="section">
+      <p class="section-title">Paper</p>
+      <div class="field row">
+        <div>
+          <label class="small">Size</label>
+          <select id="paper-size">
+            <option value="A5">A5 · 148×210mm</option>
+            <option value="A4" selected>A4 · 210×297mm</option>
+            <option value="A3">A3 · 297×420mm</option>
+            <option value="A2">A2 · 420×594mm</option>
+            <option value="LETTER">US Letter · 216×279mm</option>
+            <option value="SQUARE">Square · 210×210mm</option>
+          </select>
+        </div>
+        <div>
+          <label class="small">Orientation</label>
+          <select id="paper-orientation">
+            <option value="portrait">Portrait</option>
+            <option value="landscape">Landscape</option>
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label class="small">Margin (mm)</label>
+        <input type="number" id="paper-margin" value="12" min="0" max="60">
+      </div>
+      <div id="area-readout" class="mono">Area: —</div>
+    </div>
+    <div class="section">
+      <p class="section-title">Layers</p>
+      <div id="layer-list"></div>
+    </div>
+    <div class="section">
+      <button class="btn btn-primary" id="btn-draw">Draw This Area</button>
+      <div id="status"></div>
+      <button class="btn btn-secondary" id="btn-download" disabled>Download SVG</button>
+    </div>
+    <div class="footer-note">
+      Data source: OpenStreetMap / Overpass API. Large areas may time out — shrink the frame and try again.
+      <br><br>
+      <span style="color:var(--brass-light)">v0.1 — MVP prototype.</span> G-code export, path optimization, hatch fills, and multi-pen output are planned for a future version.
+    </div>
+  </div>
+  <div id="main">
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="map">Map</button>
+      <button class="tab-btn" data-tab="preview">Drawing Preview</button>
+    </div>
+    <div id="view-map" class="active">
+      <div id="map"></div>
+      <div id="frame"><div class="tl"></div><div class="tr"></div><div class="bl"></div><div class="br"></div></div>
+    </div>
+    <div id="view-preview">
+      <div id="preview-empty">
+        No drawing yet.<br>
+        Go to the <span class="mono">Map</span> tab, position the frame, then hit <span class="mono">"Draw This Area"</span>.
+      </div>
+      <div id="paper-shadow" style="display:none;"><svg id="svg-preview" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    </div>
+    <div id="loading-overlay"><div class="spinner"></div><span id="loading-text">Fetching OSM data…</span></div>
+  </div>
+</div>
+
+<script>
+const PAPER_SIZES = { A5:[148,210], A4:[210,297], A3:[297,420], A2:[420,594], LETTER:[215.9,279.4], SQUARE:[210,210] };
+
+const layers = [
+  { id:'water',     label:'Water (sea / lake / river)', color:'#3d6f8e', width:0.6, enabled:true },
+  { id:'green',     label:'Green space / park',         color:'#4c7a4f', width:0.5, enabled:true },
+  { id:'buildings', label:'Buildings',                  color:'#5b4636', width:0.35, enabled:true },
+  { id:'railway',   label:'Railway',                    color:'#7a4b3a', width:0.5, enabled:true },
+  { id:'roads',     label:'Roads',                       color:'#20242c', width:0.7, enabled:true },
+];
+
+const map = L.map('map', { zoomControl:true, attributionControl:true }).setView([40.7128, -74.0060], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+const layerListEl = document.getElementById('layer-list');
+function renderLayerPanel(){
+  layerListEl.innerHTML = '';
+  layers.forEach(layer => {
+    const row = document.createElement('div');
+    row.className = 'layer-row';
+    row.innerHTML = `
+      <input type="checkbox" ${layer.enabled ? 'checked' : ''} data-id="${layer.id}" data-role="toggle">
+      <input type="color" value="${layer.color}" data-id="${layer.id}" data-role="color">
+      <span class="lname">${layer.label}</span>
+      <input type="range" min="0.1" max="2.5" step="0.05" value="${layer.width}" data-id="${layer.id}" data-role="width">
+    `;
+    layerListEl.appendChild(row);
+  });
+}
+renderLayerPanel();
+
+layerListEl.addEventListener('input', (e) => {
+  const id = e.target.dataset.id;
+  const role = e.target.dataset.role;
+  const layer = layers.find(l => l.id === id);
+  if(!layer) return;
+  if(role === 'toggle') layer.enabled = e.target.checked;
+  if(role === 'color') layer.color = e.target.value;
+  if(role === 'width') layer.width = parseFloat(e.target.value);
+  if(lastDrawData) renderSVG(lastDrawData);
+});
+
+const frameEl = document.getElementById('frame');
+const mapViewEl = document.getElementById('view-map');
+
+function currentPaperDims(){
+  const sizeKey = document.getElementById('paper-size').value;
+  const orientation = document.getElementById('paper-orientation').value;
+  let [w, h] = PAPER_SIZES[sizeKey];
+  if(orientation === 'landscape' && w < h) [w, h] = [h, w];
+  if(orientation === 'portrait' && w > h) [w, h] = [h, w];
+  return { w, h };
+}
+
+function layoutFrame(){
+  const { w, h } = currentPaperDims();
+  const ratio = w / h;
+  const mapRect = mapViewEl.getBoundingClientRect();
+  const availW = mapRect.width * 0.72;
+  const availH = mapRect.height * 0.72;
+  let frameW, frameH;
+  if (availW / availH > ratio) { frameH = availH; frameW = availH * ratio; }
+  else { frameW = availW; frameH = availW / ratio; }
+  frameEl.style.width = frameW + 'px';
+  frameEl.style.height = frameH + 'px';
+  frameEl.style.left = (mapRect.width - frameW) / 2 + 'px';
+  frameEl.style.top = (mapRect.height - frameH) / 2 + 'px';
+  updateAreaReadout();
+}
+
+const M_PER_DEG_LAT = 110540;
+function metersPerDegLon(lat){ return 111320 * Math.cos(lat * Math.PI / 180); }
+
+function getFrameLatLngBounds(){
+  const mapRect = map.getContainer().getBoundingClientRect();
+  const fRect = frameEl.getBoundingClientRect();
+  const topLeftPt = L.point(fRect.left - mapRect.left, fRect.top - mapRect.top);
+  const bottomRightPt = L.point(fRect.right - mapRect.left, fRect.bottom - mapRect.top);
+  const nw = map.containerPointToLatLng(topLeftPt);
+  const se = map.containerPointToLatLng(bottomRightPt);
+  return { north: nw.lat, south: se.lat, west: nw.lng, east: se.lng };
+}
+
+function updateAreaReadout(){
+  const b = getFrameLatLngBounds();
+  const lat0 = (b.north + b.south) / 2;
+  const wMeters = (b.east - b.west) * metersPerDegLon(lat0);
+  const hMeters = (b.north - b.south) * M_PER_DEG_LAT;
+  const el = document.getElementById('area-readout');
+  const wKm = (wMeters/1000).toFixed(2);
+  const hKm = (hMeters/1000).toFixed(2);
+  let warn = '';
+  if (wMeters > 6000 || hMeters > 6000){
+    warn = ' <span class="warn">— large area, Overpass may be slow/time out</span>';
+  }
+  el.innerHTML = `Area: ${wKm} × ${hKm} km${warn}`;
+}
+
+map.on('move zoom resize', updateAreaReadout);
+window.addEventListener('resize', layoutFrame);
+document.getElementById('paper-size').addEventListener('change', layoutFrame);
+document.getElementById('paper-orientation').addEventListener('change', layoutFrame);
+setTimeout(layoutFrame, 50);
+
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('view-map').classList.toggle('active', btn.dataset.tab === 'map');
+    document.getElementById('view-preview').classList.toggle('active', btn.dataset.tab === 'preview');
+    if (btn.dataset.tab === 'map') setTimeout(() => { map.invalidateSize(); layoutFrame(); }, 50);
+  });
+});
+
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimeout = null;
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { searchResults.style.display = 'none'; return; }
+  searchTimeout = setTimeout(() => doSearch(q), 400);
+});
+
+async function doSearch(q){
+  try{
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=6&q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.length){ searchResults.style.display='none'; return; }
+    searchResults.innerHTML = '';
+    data.forEach(item => {
+      const div = document.createElement('div');
+      div.textContent = item.display_name;
+      div.addEventListener('click', () => {
+        map.setView([parseFloat(item.lat), parseFloat(item.lon)], 14);
+        searchResults.style.display = 'none';
+        searchInput.value = item.display_name;
+      });
+      searchResults.appendChild(div);
+    });
+    searchResults.style.display = 'block';
+  }catch(err){ console.error(err); }
+}
+document.addEventListener('click', (e) => {
+  if (!document.getElementById('search-wrap').contains(e.target)) searchResults.style.display = 'none';
+});
+
+function buildOverpassQuery(b){
+  const bbox = `${b.south},${b.west},${b.north},${b.east}`;
+  return `[out:json][timeout:25];(
+    way["highway"](${bbox});
+    way["building"](${bbox});
+    way["natural"="water"](${bbox});
+    way["waterway"](${bbox});
+    way["landuse"~"^(forest|grass|meadow|orchard)$"](${bbox});
+    way["leisure"~"^(park|garden|nature_reserve|pitch)$"](${bbox});
+    way["railway"](${bbox});
+  );out body;>;out skel qt;`;
+}
+
+function classifyWay(tags){
+  if (tags.building) return { layer:'buildings', mult:1 };
+  if (tags.highway){
+    const h = tags.highway;
+    let mult = 0.8;
+    if (['motorway','motorway_link','trunk','trunk_link'].includes(h)) mult = 2.2;
+    else if (['primary','primary_link'].includes(h)) mult = 1.7;
+    else if (['secondary','secondary_link'].includes(h)) mult = 1.35;
+    else if (['tertiary','tertiary_link'].includes(h)) mult = 1.1;
+    else if (['residential','unclassified','living_street'].includes(h)) mult = 0.85;
+    else if (['service','track'].includes(h)) mult = 0.55;
+    else if (['footway','path','cycleway','pedestrian','steps'].includes(h)) mult = 0.4;
+    return { layer:'roads', mult };
+  }
+  if (tags.natural === 'water' || tags.waterway) return { layer:'water', mult:1 };
+  if (tags.landuse && /^(forest|grass|meadow|orchard)$/.test(tags.landuse)) return { layer:'green', mult:1 };
+  if (tags.leisure && /^(park|garden|nature_reserve|pitch)$/.test(tags.leisure)) return { layer:'green', mult:1 };
+  if (tags.railway) return { layer:'railway', mult:1 };
+  return null;
+}
+
+async function fetchOsmData(b){
+  const query = buildOverpassQuery(b);
+  const res = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: 'data=' + encodeURIComponent(query)
+  });
+  if (!res.ok) throw new Error('Overpass request failed: ' + res.status);
+  return res.json();
+}
+
+function parseOsmElements(data){
+  const nodes = {};
+  data.elements.forEach(el => {
+    if (el.type === 'node') nodes[el.id] = { lat: el.lat, lon: el.lon };
+  });
+  const featuresByLayer = {};
+  layers.forEach(l => featuresByLayer[l.id] = []);
+
+  data.elements.forEach(el => {
+    if (el.type !== 'way' || !el.tags) return;
+    const cls = classifyWay(el.tags);
+    if (!cls) return;
+    const coords = el.nodes.map(id => nodes[id]).filter(Boolean);
+    if (coords.length < 2) return;
+    featuresByLayer[cls.layer].push({ coords, mult: cls.mult });
+  });
+  return featuresByLayer;
+}
+
+let lastDrawData = null;
+
+function project(coords, bounds, paper){
+  const lat0 = (bounds.north + bounds.south) / 2;
+  const lon0 = (bounds.west + bounds.east) / 2;
+  const mPerLon = metersPerDegLon(lat0);
+  const bboxWm = (bounds.east - bounds.west) * mPerLon;
+  const bboxHm = (bounds.north - bounds.south) * M_PER_DEG_LAT;
+  const usableW = paper.w - 2*paper.margin;
+  const usableH = paper.h - 2*paper.margin;
+  const scale = Math.min(usableW / bboxWm, usableH / bboxHm);
+  return coords.map(pt => {
+    const xm = (pt.lon - lon0) * mPerLon;
+    const ym = (pt.lat - lat0) * M_PER_DEG_LAT;
+    return [ paper.w/2 + xm*scale, paper.h/2 - ym*scale ];
+  });
+}
+
+function renderSVG(drawData){
+  const { featuresByLayer, bounds } = drawData;
+  const { w, h } = currentPaperDims();
+  const margin = parseFloat(document.getElementById('paper-margin').value) || 0;
+  const paper = { w, h, margin };
+
+  const svg = document.getElementById('svg-preview');
+  svg.setAttribute('width', mmToPx(w));
+  svg.setAttribute('height', mmToPx(h));
+  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  svg.innerHTML = '';
+
+  const bg = document.createElementNS('http://www.w3.org/2000/svg','rect');
+  bg.setAttribute('x',0); bg.setAttribute('y',0);
+  bg.setAttribute('width', w); bg.setAttribute('height', h);
+  bg.setAttribute('fill', '#f4efe3');
+  svg.appendChild(bg);
+
+  layers.forEach(layerCfg => {
+    if (!layerCfg.enabled) return;
+    const feats = featuresByLayer[layerCfg.id] || [];
+    if (!feats.length) return;
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('data-layer', layerCfg.id);
+    feats.forEach(f => {
+      const pts = project(f.coords, bounds, paper);
+      const d = pts.map((p,i) => (i===0?'M':'L') + p[0].toFixed(3) + ',' + p[1].toFixed(3)).join(' ');
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d', d);
+      path.setAttribute('fill', 'none');
+      path.setAttribute('stroke', layerCfg.color);
+      path.setAttribute('stroke-width', (layerCfg.width * (f.mult||1)).toFixed(2));
+      path.setAttribute('stroke-linecap', 'round');
+      path.setAttribute('stroke-linejoin', 'round');
+      g.appendChild(path);
+    });
+    svg.appendChild(g);
+  });
+
+  document.getElementById('preview-empty').style.display = 'none';
+  document.getElementById('paper-shadow').style.display = 'block';
+  document.getElementById('btn-download').disabled = false;
+}
+
+function mmToPx(mm){ return Math.round(mm * 2.8); }
+
+const btnDraw = document.getElementById('btn-draw');
+const statusEl = document.getElementById('status');
+const loadingOverlay = document.getElementById('loading-overlay');
+
+btnDraw.addEventListener('click', async () => {
+  const bounds = getFrameLatLngBounds();
+  btnDraw.disabled = true;
+  loadingOverlay.classList.add('show');
+  statusEl.className = '';
+  statusEl.textContent = '';
+  try{
+    const data = await fetchOsmData(bounds);
+    const featuresByLayer = parseOsmElements(data);
+    lastDrawData = { featuresByLayer, bounds };
+    renderSVG(lastDrawData);
+    statusEl.className = 'ok';
+    statusEl.textContent = '✓ Drawing ready. Check the Preview tab.';
+    document.querySelector('.tab-btn[data-tab="preview"]').click();
+  }catch(err){
+    console.error(err);
+    statusEl.className = 'err';
+    statusEl.textContent = 'Error: could not fetch data. Try a smaller area (' + err.message + ')';
+  }finally{
+    btnDraw.disabled = false;
+    loadingOverlay.classList.remove('show');
+  }
+});
+
+document.getElementById('btn-download').addEventListener('click', () => {
+  if (!lastDrawData) return;
+  const svgEl = document.getElementById('svg-preview');
+  const clone = svgEl.cloneNode(true);
+  const bgRect = clone.querySelector('rect');
+  if (bgRect) bgRect.remove();
+  const serializer = new XMLSerializer();
+  let svgStr = serializer.serializeToString(clone);
+  svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + svgStr;
+  const blob = new Blob([svgStr], { type: 'image/svg+xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'mapzilla-drawing.svg';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
